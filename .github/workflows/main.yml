@@ -15,15 +15,17 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Send Telegram start notification
-      uses: appleboy/telegram-action@v0.1.7
-      with:
-        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        message: |
-          🚀 *Deployment Started*
+      env:
+        TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        TELEGRAM_CHAT_ID: 8362379114
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="🚀 *Deployment Started*  
           Repo: ${{ github.repository }}
-          Run: ${{ github.run_id }}
-          Status: Starting...
+          Run: #${{ github.run_id }}
+          Status: Starting..." \
+          -d parse_mode=Markdown
 
     - name: Update and install basics
       run: |
@@ -58,51 +60,65 @@ jobs:
         cd sapine-nodes-api
         source venv/bin/activate
         nohup python -m app.main > app.log 2>&1 &
-        echo "App PID: $!" >> app.log
+        APP_PID=$!
+        echo "App PID: $APP_PID" >> app.log
         sleep 10
+        echo "App is running on PID $APP_PID"
 
     - name: Send Telegram success notification
       if: success()
-      uses: appleboy/telegram-action@v0.1.7
-      with:
-        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        message: |
-          ✅ *App Deployed Successfully*
-          Cloudflared: Installed ✅
-          Python App: Running (PID logged)
-          Logs: Check Actions tab
-          Run ID: ${{ github.run_id }}
+      env:
+        TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        TELEGRAM_CHAT_ID: 8362379114
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="✅ *App Deployed Successfully*
+Cloudflared: Installed ✅
+Python App: Running 
+Run ID: #${{ github.run_id }}
+Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -d parse_mode=Markdown
 
     - name: Install sshx
       run: |
         curl -sSfL https://sshx.io/install.sh | bash
         sudo mv sshx /usr/local/bin/
 
-    - name: Start sshx session and get URL
+    - name: Start sshx session
       id: sshx
       run: |
         export TERM=xterm-256color
-        sshx-output=$(sshx -R0:localhost:22 2>&1) || true
-        sshx-url=$(echo "$sshx-output" | grep -o 'https://sshx.io/[a-zA-Z0-9_-]*' | head -1 || echo "Failed to get URL")
-        echo "sshx-url=$sshx-url" >> $GITHUB_OUTPUT
-        echo "SSHX_URL=$sshx-url" >> $GITHUB_ENV
+        sshx_output=$(timeout 30 sshx -R0:localhost:22 2>&1 || true)
+        sshx_url=$(echo "$sshx_output" | grep -o 'https://sshx\.io/[a-zA-Z0-9_-]*' | head -1)
+        if [ -z "$sshx_url" ]; then
+          sshx_url="Failed to create SSHX session"
+        fi
+        echo "SSHX_URL=$sshx_url" >> $GITHUB_ENV
+        echo "sshx-url=$sshx_url" >> $GITHUB_OUTPUT
 
-    - name: Send Telegram final URL
+    - name: Send Telegram final SSHX URL
       if: always()
-      uses: appleboy/telegram-action@v0.1.7
-      with:
-        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        message: |
-          🔗 *SSH Access Ready*
-          URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
-          Expires: ~24 hours
-          User: root (passwordless sudo)
-          Run ID: ${{ github.run_id }}
-          ${{ job.status }}
+      env:
+        TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        TELEGRAM_CHAT_ID: 8362379114
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="🔗 *SSH Access Ready*
+📱 URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
+⏰ Expires: ~24 hours
+👤 User: root (passwordless sudo)
+💻 Commands:
+• cd sapine-nodes-api && tail -f app.log
+• systemctl status cloudflared
+• ps aux | grep python
+Run: #${{ github.run_id }}
+Status: ${{ job.status }}" \
+          -d parse_mode=Markdown
 
     - name: Keep running for 6 hours
       run: |
         cd sapine-nodes-api
+        echo "Keeping session alive for 6 hours... Press Ctrl+C in SSHX to stop early"
         tail -f app.log /dev/null
