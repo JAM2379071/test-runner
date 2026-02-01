@@ -74,10 +74,10 @@ jobs:
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
           -d text="✅ *App Deployed Successfully*
-Cloudflared: Installed ✅
-Python App: Running 
-Run ID: #${{ github.run_id }}
-Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+           Cloudflared: Installed ✅
+           Python App: Running 
+           Run ID: #${{ github.run_id }}
+          Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           -d parse_mode=Markdown
 
     - name: Install sshx
@@ -106,15 +106,15 @@ Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
           -d text="🔗 *SSH Access Ready*
-📱 URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
-⏰ Expires: ~24 hours
-👤 User: root (passwordless sudo)
-💻 Commands:
-• cd sapine-nodes-api && tail -f app.log
-• systemctl status cloudflared
-• ps aux | grep python
-Run: #${{ github.run_id }}
-Status: ${{ job.status }}" \
+           📱 URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
+           ⏰ Expires: ~24 hours
+           👤 User: root (passwordless sudo)
+          💻 Commands:
+          • cd sapine-nodes-api && tail -f app.log
+          • systemctl status cloudflared
+          • ps aux | grep python
+          Run: #${{ github.run_id }}
+          Status: ${{ job.status }}" \
           -d parse_mode=Markdown
 
     - name: Keep running for 6 hours
