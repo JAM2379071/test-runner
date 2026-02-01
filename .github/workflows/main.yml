@@ -1,0 +1,108 @@
+name: Deploy Sapine Nodes API
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Send Telegram start notification
+      uses: appleboy/telegram-action@v0.1.7
+      with:
+        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        message: |
+          🚀 *Deployment Started*
+          Repo: ${{ github.repository }}
+          Run: ${{ github.run_id }}
+          Status: Starting...
+
+    - name: Update and install basics
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl git python3-venv python3-pip
+
+    - name: Add Cloudflare GPG key
+      run: |
+        sudo mkdir -p --mode=0755 /usr/share/keyrings
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+    - name: Install cloudflared
+      run: sudo apt-get update && sudo apt-get install -y cloudflared
+
+    - name: Install cloudflared service
+      run: sudo cloudflared service install eyJhIjoiY2U5MWFiYmQyYWU3YjhlZjQxMmU0YWQxODJmYzUxYzciLCJ0IjoiNzI2NWFlZjQtM2QyNS00MDE0LThjMjMtMzM3MGFiZTExNGJmIiwicyI6Ik9UVXhOR05qTmpZdE5HRTNZeTAwT0dVNUxXSTBZbUV0WmpkbU1XRTRZV0ptTVdJeCJ9
+
+    - name: Clone sapine-nodes-api
+      run: |
+        git clone https://github.com/Arpitraj02/sapine-nodes-api.git
+        cd sapine-nodes-api
+
+    - name: Run install.sh
+      run: |
+        cd sapine-nodes-api
+        chmod +x install.sh
+        ./install.sh
+
+    - name: Activate venv and start app
+      run: |
+        cd sapine-nodes-api
+        source venv/bin/activate
+        nohup python -m app.main > app.log 2>&1 &
+        echo "App PID: $!" >> app.log
+        sleep 10
+
+    - name: Send Telegram success notification
+      if: success()
+      uses: appleboy/telegram-action@v0.1.7
+      with:
+        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        message: |
+          ✅ *App Deployed Successfully*
+          Cloudflared: Installed ✅
+          Python App: Running (PID logged)
+          Logs: Check Actions tab
+          Run ID: ${{ github.run_id }}
+
+    - name: Install sshx
+      run: |
+        curl -sSfL https://sshx.io/install.sh | bash
+        sudo mv sshx /usr/local/bin/
+
+    - name: Start sshx session and get URL
+      id: sshx
+      run: |
+        export TERM=xterm-256color
+        sshx-output=$(sshx -R0:localhost:22 2>&1) || true
+        sshx-url=$(echo "$sshx-output" | grep -o 'https://sshx.io/[a-zA-Z0-9_-]*' | head -1 || echo "Failed to get URL")
+        echo "sshx-url=$sshx-url" >> $GITHUB_OUTPUT
+        echo "SSHX_URL=$sshx-url" >> $GITHUB_ENV
+
+    - name: Send Telegram final URL
+      if: always()
+      uses: appleboy/telegram-action@v0.1.7
+      with:
+        to: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        token: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
+        message: |
+          🔗 *SSH Access Ready*
+          URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
+          Expires: ~24 hours
+          User: root (passwordless sudo)
+          Run ID: ${{ github.run_id }}
+          ${{ job.status }}
+
+    - name: Keep running for 6 hours
+      run: |
+        cd sapine-nodes-api
+        tail -f app.log /dev/null
