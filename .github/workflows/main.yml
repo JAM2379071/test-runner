@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  TERM: xterm-256color  # Fixes TERM error globally
+  TERM: xterm-256color
 
 jobs:
   deploy:
@@ -20,11 +20,11 @@ jobs:
     - name: Send Telegram start
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        TELEGRAM_CHAT_ID: 8362379114
+        TELEGRAM_CHAT_ID: 7269251740
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
-          -d text="🚀 *Deployment Started* 
+          -d text="🚀 *Deployment Started*
           Repo: ${{ github.repository }}
           Run: #${{ github.run_id }}" \
           -d parse_mode=Markdown
@@ -51,71 +51,67 @@ jobs:
     - name: Clone sapine-nodes-api
       run: |
         git clone https://github.com/Arpitraj02/sapine-nodes-api.git
-        cd sapine-nodes-api || exit 1
+        cd sapine-nodes-api
 
     - name: Run install.sh
       run: |
         cd sapine-nodes-api
-        ls -la install.sh
         chmod +x install.sh
         ./install.sh
 
     - name: Start Python app
       run: |
         cd sapine-nodes-api
-        source venv/bin/activate || echo "Venv not found, creating..."
+        source venv/bin/activate
         nohup python -m app.main > app.log 2>&1 &
         echo "App PID: $!" | tee -a app.log
-        sleep 5
-        ps aux | grep "[p]ython" || echo "App may not be running"
+        sleep 10
 
     - name: Send success notification
       if: success()
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        TELEGRAM_CHAT_ID: 8362379114
+        TELEGRAM_CHAT_ID: 7269251740
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
           -d text="✅ *App Deployed*
-           Cloudflared: ✅ Installed
-           App: ✅ Running
-           Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          Cloudflared: ✅ Installed
+          App: ✅ Running 
+          Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           -d parse_mode=Markdown
 
-    - name: Install sshx
+    - name: Install sshx (OFFICIAL method)
       run: |
-        curl -sSfL https://sshx.io/install.sh | bash
-        sudo mv sshx /usr/local/bin/sshx
+        # ✅ CORRECT: Use official get script as you showed
+        curl -sSf https://sshx.io/get | sh -s -- install
+        sshx --version
 
     - name: Create SSHX session
       id: sshx
       run: |
-        sshx --version
-        sshx_output=$(timeout 30 sshx -R0:localhost:22 2>&1 || true)
-        sshx_url=$(echo "$sshx_output" | grep -o 'https://sshx.io/[a-zA-Z0-9_-]*' | head -1)
-        echo "SSHX_URL=${sshx_url:-FAILED}" >> $GITHUB_ENV
-        echo "sshx-url=${sshx_url:-FAILED}" >> $GITHUB_OUTPUT
+        # ✅ Run sshx directly - prints URL automatically
+        sshx -R0:localhost:22
 
-    - name: Send SSHX URL
+    - name: Send SSHX URL (fallback)
       if: always()
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
-        TELEGRAM_CHAT_ID: 8362379114
+        TELEGRAM_CHAT_ID: 7269251740
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
           -d text="🔗 *SSH Ready*
-          URL: ${{ steps.sshx.outputs.sshx-url }}
-           User: root
-          *Commands:*
-         cd sapine-nodes-api && tail -f app.log
-          systemctl status cloudflared
-          ps aux | grep python" \
+          *Check Actions logs above for SSHX URL!*
+          User: root
+          Commands:
+          • cd sapine-nodes-api && tail -f app.log
+          • systemctl status cloudflared
+          Run: #${{ github.run_id }}" \
           -d parse_mode=Markdown
 
     - name: Keep alive 6h
       run: |
         cd sapine-nodes-api
-        echo "✅ Session active for 6 hours. Use SSHX URL above."
+        echo "✅ Session active 6h - SSHX URL printed above"
         tail -f app.log /dev/null
