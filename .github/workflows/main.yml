@@ -91,7 +91,7 @@ jobs:
       id: sshx
       run: |
         # ✅ Run sshx directly - prints URL automatically
-        sshx -R0:localhost:22
+        sshx
 
     - name: Send SSHX URL (fallback)
       if: always()
