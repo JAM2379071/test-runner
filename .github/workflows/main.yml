@@ -5,38 +5,42 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  TERM: xterm-256color  # Fixes TERM error globally
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours max
+    timeout-minutes: 360
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Send Telegram start notification
+    - name: Send Telegram start
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
         TELEGRAM_CHAT_ID: 8362379114
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
-          -d text="🚀 *Deployment Started*  
+          -d text="🚀 *Deployment Started* 
           Repo: ${{ github.repository }}
-          Run: #${{ github.run_id }}
-          Status: Starting..." \
+          Run: #${{ github.run_id }}" \
           -d parse_mode=Markdown
 
-    - name: Update and install basics
+    - name: Update packages
       run: |
         sudo apt-get update
         sudo apt-get install -y curl git python3-venv python3-pip
 
-    - name: Add Cloudflare GPG key
+    - name: Setup Cloudflare repo
       run: |
         sudo mkdir -p --mode=0755 /usr/share/keyrings
-        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
-        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | \
+          sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | \
+          sudo tee /etc/apt/sources.list.d/cloudflared.list
 
     - name: Install cloudflared
       run: sudo apt-get update && sudo apt-get install -y cloudflared
@@ -47,25 +51,25 @@ jobs:
     - name: Clone sapine-nodes-api
       run: |
         git clone https://github.com/Arpitraj02/sapine-nodes-api.git
-        cd sapine-nodes-api
+        cd sapine-nodes-api || exit 1
 
     - name: Run install.sh
       run: |
         cd sapine-nodes-api
+        ls -la install.sh
         chmod +x install.sh
         ./install.sh
 
-    - name: Activate venv and start app
+    - name: Start Python app
       run: |
         cd sapine-nodes-api
-        source venv/bin/activate
+        source venv/bin/activate || echo "Venv not found, creating..."
         nohup python -m app.main > app.log 2>&1 &
-        APP_PID=$!
-        echo "App PID: $APP_PID" >> app.log
-        sleep 10
-        echo "App is running on PID $APP_PID"
+        echo "App PID: $!" | tee -a app.log
+        sleep 5
+        ps aux | grep "[p]ython" || echo "App may not be running"
 
-    - name: Send Telegram success notification
+    - name: Send success notification
       if: success()
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
@@ -73,31 +77,27 @@ jobs:
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
-          -d text="✅ *App Deployed Successfully*
-           Cloudflared: Installed ✅
-           Python App: Running 
-           Run ID: #${{ github.run_id }}
-          Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -d text="✅ *App Deployed*
+           Cloudflared: ✅ Installed
+           App: ✅ Running
+           Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           -d parse_mode=Markdown
 
     - name: Install sshx
       run: |
         curl -sSfL https://sshx.io/install.sh | bash
-        sudo mv sshx /usr/local/bin/
+        sudo mv sshx /usr/local/bin/sshx
 
-    - name: Start sshx session
+    - name: Create SSHX session
       id: sshx
       run: |
-        export TERM=xterm-256color
+        sshx --version
         sshx_output=$(timeout 30 sshx -R0:localhost:22 2>&1 || true)
-        sshx_url=$(echo "$sshx_output" | grep -o 'https://sshx\.io/[a-zA-Z0-9_-]*' | head -1)
-        if [ -z "$sshx_url" ]; then
-          sshx_url="Failed to create SSHX session"
-        fi
-        echo "SSHX_URL=$sshx_url" >> $GITHUB_ENV
-        echo "sshx-url=$sshx_url" >> $GITHUB_OUTPUT
+        sshx_url=$(echo "$sshx_output" | grep -o 'https://sshx.io/[a-zA-Z0-9_-]*' | head -1)
+        echo "SSHX_URL=${sshx_url:-FAILED}" >> $GITHUB_ENV
+        echo "sshx-url=${sshx_url:-FAILED}" >> $GITHUB_OUTPUT
 
-    - name: Send Telegram final SSHX URL
+    - name: Send SSHX URL
       if: always()
       env:
         TELEGRAM_TOKEN: 8362379114:AAFg_bOXNSu5uiLagudbPGS4Hshjg53NAmM
@@ -105,20 +105,17 @@ jobs:
       run: |
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
           -d chat_id="$TELEGRAM_CHAT_ID" \
-          -d text="🔗 *SSH Access Ready*
-           📱 URL: ${{ steps.sshx.outputs.sshx-url || env.SSHX_URL }}
-           ⏰ Expires: ~24 hours
-           👤 User: root (passwordless sudo)
-          💻 Commands:
-          • cd sapine-nodes-api && tail -f app.log
-          • systemctl status cloudflared
-          • ps aux | grep python
-          Run: #${{ github.run_id }}
-          Status: ${{ job.status }}" \
+          -d text="🔗 *SSH Ready*
+          URL: ${{ steps.sshx.outputs.sshx-url }}
+           User: root
+          *Commands:*
+         cd sapine-nodes-api && tail -f app.log
+          systemctl status cloudflared
+          ps aux | grep python" \
           -d parse_mode=Markdown
 
-    - name: Keep running for 6 hours
+    - name: Keep alive 6h
       run: |
         cd sapine-nodes-api
-        echo "Keeping session alive for 6 hours... Press Ctrl+C in SSHX to stop early"
+        echo "✅ Session active for 6 hours. Use SSHX URL above."
         tail -f app.log /dev/null
